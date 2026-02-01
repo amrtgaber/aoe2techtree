@@ -1,4 +1,6 @@
 .idea
 bin
 .directory
+node_modules/
 /scripts/venv
+data-conversion/output/
