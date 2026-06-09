@@ -140,6 +140,9 @@ def main():
 
 
 def convert(source_dds: Path, target_file: Path):
+    if target_file.exists():
+        print(f'Skipping {target_file}')
+        return
     assert source_dds.is_file()
     print(f'Converting {source_dds} → {target_file}')
     with Image.open(source_dds) as im:
