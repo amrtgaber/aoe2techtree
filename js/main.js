@@ -793,7 +793,7 @@ function civ(civName) {
                     const itemId = building.grid[row][col];
                     if (itemId) {
                         const item = index[itemId];
-                        if (item.link_id !== -1) {
+                        if (item.link_id !== -1 && item.link_id !== null) {
                             for (let search_row = row - 1; search_row >= 0; search_row--) {
                                 const itemOnTopId = building.grid[search_row][col];
                                 if (itemOnTopId) {
