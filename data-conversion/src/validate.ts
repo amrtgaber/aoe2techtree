@@ -5,6 +5,7 @@ import {
   techSchema,
   buildingSchema,
   civSchema,
+  unitUpgradeSchema,
   translationsSchema,
 } from "./schemas.js";
 import type { TransformedData } from "./transform.js";
@@ -44,6 +45,11 @@ export function validate(data: TransformedData): TransformedData {
   const techs = validateArray(techSchema, data.techs, "techs");
   const buildings = validateArray(buildingSchema, data.buildings, "buildings");
   const civs = validateArray(civSchema, data.civs, "civs");
+  const unitUpgrades = validateArray(
+    unitUpgradeSchema,
+    data.unitUpgrades,
+    "unitUpgrades"
+  );
 
   const translationsResult = translationsSchema.safeParse(data.translations);
   if (!translationsResult.success) {
@@ -55,7 +61,8 @@ export function validate(data: TransformedData): TransformedData {
   console.log(
     `Validated: ${ages.length} ages, ${units.length} units, ` +
       `${techs.length} techs, ${buildings.length} buildings, ` +
-      `${civs.length} civs, ${Object.keys(translationsResult.data).length} locales`
+      `${civs.length} civs, ${unitUpgrades.length} unit upgrades, ` +
+      `${Object.keys(translationsResult.data).length} locales`
   );
 
   return {
@@ -64,6 +71,7 @@ export function validate(data: TransformedData): TransformedData {
     techs,
     buildings,
     civs,
+    unitUpgrades,
     translations: translationsResult.data,
   };
 }

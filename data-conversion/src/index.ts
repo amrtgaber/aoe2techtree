@@ -1,6 +1,7 @@
 import { extract } from "./extract.js";
 import { transform } from "./transform.js";
 import { validate } from "./validate.js";
+import { buildMeta } from "./meta.js";
 import { write } from "./write.js";
 
 function main(): void {
@@ -16,7 +17,7 @@ function main(): void {
   const validated = validate(transformed);
 
   console.log("\n[4/4] Writing output...");
-  write(validated, trees);
+  write(validated, trees, buildMeta(validated));
 
   console.log("\nDone.");
 }

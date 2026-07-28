@@ -5,7 +5,15 @@ import type {
   LocaleMap,
   RawCost,
 } from "./types.js";
-import type { Age, Unit, Tech, Building, Civ, Translations } from "./schemas.js";
+import type {
+  Age,
+  Unit,
+  Tech,
+  Building,
+  Civ,
+  UnitUpgrade,
+  Translations,
+} from "./schemas.js";
 
 export interface TransformedData {
   ages: Age[];
@@ -13,6 +21,7 @@ export interface TransformedData {
   techs: Tech[];
   buildings: Building[];
   civs: Civ[];
+  unitUpgrades: UnitUpgrade[];
   translations: Translations;
 }
 
@@ -27,11 +36,13 @@ const DUPLICATE_UNIT_NODES = new Set([
   1260, // Elite Kipchak (Cuman Mercenaries)
 ]);
 
-// The Xolotl Warrior is trainable by the meso civs but absent from the game's
-// tech tree export, so it has to be added manually.
+// The Xolotl Warrior is trainable by the meso civs at a converted enemy
+// Stable, and is absent from the game's tech tree export, so it has to be
+// added manually.
 const XOLOTL_WARRIOR_ID = 1570;
 const XOLOTL_WARRIOR_AGE = 3;
 const XOLOTL_CIVS = new Set(["Aztecs", "Incas", "Mayans"]);
+const STABLE_ID = 101;
 
 const CASTLE_ID = 82;
 const CASTLE_AGE = 3;
@@ -133,6 +144,51 @@ function isImperialAgeUniqueTech(node: RawTreeNode): boolean {
   );
 }
 
+/** Building IDs each unit is trained at / each tech is researched at. */
+interface TrainingLocations {
+  units: Map<number, Set<number>>;
+  techs: Map<number, Set<number>>;
+}
+
+// Locations are a structural fact of the tech tree, so NotAvailable nodes
+// count too (a civ lacking the Elite Cannon Galleon doesn't change where
+// it is trained).
+function buildTrainingLocations(trees: RawTreeMap): TrainingLocations {
+  const units = new Map<number, Set<number>>();
+  const techs = new Map<number, Set<number>>();
+  for (const tree of Object.values(trees)) {
+    for (const node of tree.units_techs) {
+      if (node.building_id === null) {
+        continue;
+      }
+      const target =
+        node.use_type === "Unit"
+          ? units
+          : node.use_type === "Tech"
+            ? techs
+            : null;
+      if (target === null) {
+        continue;
+      }
+      let locations = target.get(node.node_id);
+      if (locations === undefined) {
+        locations = new Set();
+        target.set(node.node_id, locations);
+      }
+      locations.add(node.building_id);
+    }
+  }
+  units.set(XOLOTL_WARRIOR_ID, new Set([STABLE_ID]));
+  return { units, techs };
+}
+
+function locationList(
+  locations: Map<number, Set<number>>,
+  id: number
+): number[] {
+  return [...(locations.get(id) ?? [])].sort((a, b) => a - b);
+}
+
 function transformCost(raw: RawCost): Record<string, number> {
   const cost: Record<string, number> = {};
   if (raw.Food !== undefined) cost.food = raw.Food;
@@ -153,7 +209,8 @@ function transformAges(gameData: RawGameData): Age[] {
 
 function transformUnits(
   gameData: RawGameData,
-  stringIds: Map<string, StringIds>
+  stringIds: Map<string, StringIds>,
+  locations: TrainingLocations
 ): Unit[] {
   return Object.values(gameData.data.Unit).map((raw) => ({
     id: raw.ID,
@@ -184,12 +241,14 @@ function transformUnits(
     trait: raw.Trait,
     traitPiece: raw.TraitPiece,
     blastWidth: raw.BlastWidth,
+    trainedAt: locationList(locations.units, raw.ID),
   }));
 }
 
 function transformTechs(
   gameData: RawGameData,
-  stringIds: Map<string, StringIds>
+  stringIds: Map<string, StringIds>,
+  locations: TrainingLocations
 ): Tech[] {
   return Object.values(gameData.data.Tech).map((raw) => ({
     id: raw.ID,
@@ -199,7 +258,20 @@ function transformTechs(
     cost: transformCost(raw.Cost),
     researchTime: raw.ResearchTime,
     repeatable: raw.Repeatable,
+    researchedAt: locationList(locations.techs, raw.ID),
   }));
+}
+
+function transformUnitUpgrades(gameData: RawGameData): UnitUpgrade[] {
+  return Object.entries(gameData.data.unit_upgrades)
+    .map(([unitId, raw]) => ({
+      id: Number(unitId),
+      internalName: raw.internal_name,
+      techId: raw.ID,
+      cost: transformCost(raw.Cost),
+      researchTime: raw.ResearchTime,
+    }))
+    .sort((a, b) => a.id - b.id);
 }
 
 function transformBuildings(
@@ -376,10 +448,12 @@ export function transform(
 ): TransformedData {
   const ages = transformAges(gameData);
   const stringIds = buildStringIdIndex(trees);
-  const units = transformUnits(gameData, stringIds);
-  const techs = transformTechs(gameData, stringIds);
+  const locations = buildTrainingLocations(trees);
+  const units = transformUnits(gameData, stringIds, locations);
+  const techs = transformTechs(gameData, stringIds, locations);
   const buildings = transformBuildings(gameData, stringIds);
   const civs = transformCivs(gameData, trees);
+  const unitUpgrades = transformUnitUpgrades(gameData);
   const translations = buildTranslations(
     locales,
     ages,
@@ -392,8 +466,9 @@ export function transform(
   console.log(
     `Transformed: ${ages.length} ages, ${units.length} units, ` +
       `${techs.length} techs, ${buildings.length} buildings, ` +
-      `${civs.length} civs, ${Object.keys(translations).length} locales`
+      `${civs.length} civs, ${unitUpgrades.length} unit upgrades, ` +
+      `${Object.keys(translations).length} locales`
   );
 
-  return { ages, units, techs, buildings, civs, translations };
+  return { ages, units, techs, buildings, civs, unitUpgrades, translations };
 }

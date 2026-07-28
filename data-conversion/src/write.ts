@@ -2,6 +2,7 @@ import { writeFileSync, mkdirSync, copyFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RawTreeMap } from "./types.js";
+import type { Meta } from "./schemas.js";
 import type { TransformedData } from "./transform.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -101,7 +102,11 @@ function copyCivImages(civNames: string[]): void {
   console.log(`  civs: ${copied}/${civNames.length} images copied${missingNote}`);
 }
 
-export function write(data: TransformedData, trees: RawTreeMap): void {
+export function write(
+  data: TransformedData,
+  trees: RawTreeMap,
+  meta: Meta
+): void {
   mkdirSync(OUTPUT_DIR, { recursive: true });
 
   writeJson("ages.json", data.ages);
@@ -109,7 +114,9 @@ export function write(data: TransformedData, trees: RawTreeMap): void {
   writeJson("techs.json", data.techs);
   writeJson("buildings.json", data.buildings);
   writeJson("civs.json", data.civs);
+  writeJson("unit_upgrades.json", data.unitUpgrades);
   writeJson("translations.json", data.translations);
+  writeJson("meta.json", meta);
 
   console.log("Copying images...");
   const pictures = buildPictureIndexMap(trees);
