@@ -1,4 +1,4 @@
-/** Raw type definitions matching the structure of data/data.json */
+/** Raw type definitions matching the structure of data/data.json and data/trees/<CIV>.json */
 
 export interface RawArmourOrAttack {
   Amount: number;
@@ -16,7 +16,6 @@ export interface RawUnit {
   ID: number;
   internal_name: string;
   LanguageNameId: number;
-  LanguageHelpId: number;
   HP: number;
   LineOfSight: number;
   GarrisonCapacity: number;
@@ -47,7 +46,6 @@ export interface RawTech {
   ID: number;
   internal_name: string;
   LanguageNameId: number;
-  LanguageHelpId: number;
   Cost: RawCost;
   ResearchTime: number;
   Repeatable: boolean;
@@ -57,7 +55,6 @@ export interface RawBuilding {
   ID: number;
   internal_name: string;
   LanguageNameId: number;
-  LanguageHelpId: number;
   HP: number;
   LineOfSight: number;
   GarrisonCapacity: number;
@@ -74,36 +71,59 @@ export interface RawBuilding {
   Armours: RawArmourOrAttack[];
 }
 
-export interface RawTechtreeEntry {
-  id: number;
-  age: number;
+export interface RawUnitUpgrade {
+  ID: number;
+  internal_name: string;
+  Cost: RawCost;
+  ResearchTime: number;
 }
 
-export interface RawTechtreeUnique {
-  castleAgeUniqueUnit: number;
-  imperialAgeUniqueUnit: number;
-  castleAgeUniqueTech: number;
-  imperialAgeUniqueTech: number;
+export interface RawCivInfo {
+  Building: number[];
+  Tech: number[];
+  Unit: number[];
+  era: string;
+  help_string_id: number;
+  internal_name: string;
+  meta: Record<string, unknown>;
+  name_string_id: number;
 }
 
-export interface RawTechtree {
-  units: RawTechtreeEntry[];
-  techs: RawTechtreeEntry[];
-  buildings: RawTechtreeEntry[];
-  unique: RawTechtreeUnique;
-  monkSuffix: string;
+/** A node in a civ's tech tree layout file (data/trees/<CIV>.json) */
+export interface RawTreeNode {
+  age_id: number;
+  building_id: number | null;
+  help_string_id: number;
+  id: string;
+  link_id: number | null;
+  link_node_type: string | null;
+  name: string;
+  name_string_id: number;
+  node_id: number;
+  node_status: string;
+  node_type: string | null;
+  picture_index: number;
+  row: number;
+  use_type: "Building" | "Tech" | "Unit";
 }
+
+export interface RawTree {
+  buildings: RawTreeNode[];
+  units_techs: RawTreeNode[];
+}
+
+export type RawTreeMap = Record<string, RawTree>;
 
 export interface RawGameData {
-  age_names: Record<string, string>;
-  civ_names: Record<string, string>;
-  civ_helptexts: Record<string, string>;
+  age_names: Record<string, string[]>;
+  civs: Record<string, RawCivInfo>;
   data: {
-    units: Record<string, RawUnit>;
-    techs: Record<string, RawTech>;
-    buildings: Record<string, RawBuilding>;
+    Unit: Record<string, RawUnit>;
+    Tech: Record<string, RawTech>;
+    Building: Record<string, RawBuilding>;
+    unit_upgrades: Record<string, RawUnitUpgrade>;
   };
-  techtrees: Record<string, RawTechtree>;
+  tech_tree_strings: Record<string, string>;
 }
 
 export type LocaleMap = Record<string, Record<string, string>>;

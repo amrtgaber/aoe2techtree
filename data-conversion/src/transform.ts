@@ -1,4 +1,10 @@
-import type { RawGameData, LocaleMap, RawCost } from "./types.js";
+import type {
+  RawGameData,
+  RawTreeMap,
+  RawTreeNode,
+  LocaleMap,
+  RawCost,
+} from "./types.js";
 import type { Age, Unit, Tech, Building, Civ, Translations } from "./schemas.js";
 
 export interface TransformedData {
@@ -8,6 +14,123 @@ export interface TransformedData {
   buildings: Building[];
   civs: Civ[];
   translations: Translations;
+}
+
+// Node IDs that duplicate a unique unit at a second building (e.g. Huskarl at
+// the Barracks with Anarchy); the data format lists civ units once, at their
+// primary building.
+const DUPLICATE_UNIT_NODES = new Set([
+  759, // Huskarl (Barracks)
+  761, // Elite Huskarl (Barracks)
+  886, // Tarkan (Stable)
+  887, // Elite Tarkan (Stable)
+  1260, // Elite Kipchak (Cuman Mercenaries)
+]);
+
+// The Xolotl Warrior is trainable by the meso civs but absent from the game's
+// tech tree export, so it has to be added manually.
+const XOLOTL_WARRIOR_ID = 1570;
+const XOLOTL_WARRIOR_AGE = 3;
+const XOLOTL_CIVS = new Set(["Aztecs", "Incas", "Mayans"]);
+
+const CASTLE_ID = 82;
+const CASTLE_AGE = 3;
+const IMPERIAL_AGE = 4;
+// Unique techs carry the generic unique-tech scroll icons rather than a
+// tech-specific picture, which distinguishes them from the shared castle techs.
+const CASTLE_UNIQUE_TECH_PICTURE = 33;
+const IMPERIAL_UNIQUE_TECH_PICTURE = 107;
+
+// A tree node's help_string_id minus this offset is the key of the help text
+// in the locale files (the same rule generateDataFiles.py uses to decide
+// which strings to ship).
+const NODE_HELP_STRING_OFFSET = 79000;
+// For entities without a tree node, the help text key is the name key plus
+// this offset.
+const FALLBACK_HELP_STRING_OFFSET = 21000;
+
+interface StringIds {
+  nameId: number;
+  helpId: number;
+}
+
+/**
+ * data.json no longer carries help string IDs, and its name IDs point at
+ * strings the locale files no longer ship. The tech tree nodes carry the
+ * string IDs the locale files are built from, so index those per entity.
+ */
+function buildStringIdIndex(trees: RawTreeMap): Map<string, StringIds> {
+  const index = new Map<string, StringIds>();
+  for (const tree of Object.values(trees)) {
+    for (const node of [...tree.buildings, ...tree.units_techs]) {
+      const key = `${node.use_type}:${node.node_id}`;
+      if (!index.has(key)) {
+        index.set(key, {
+          nameId: node.name_string_id,
+          helpId: node.help_string_id - NODE_HELP_STRING_OFFSET,
+        });
+      }
+    }
+  }
+  return index;
+}
+
+function stringIdsFor(
+  index: Map<string, StringIds>,
+  useType: "Unit" | "Tech" | "Building",
+  raw: { ID: number; LanguageNameId: number }
+): StringIds {
+  // Entities absent from every civ's tree (e.g. the unpacked Trebuchet or
+  // the Xolotl Warrior) keep their raw name ID, which the locale files cover
+  // through the generator's extra_ids list.
+  return (
+    index.get(`${useType}:${raw.ID}`) ?? {
+      nameId: raw.LanguageNameId,
+      helpId: raw.LanguageNameId + FALLBACK_HELP_STRING_OFFSET,
+    }
+  );
+}
+
+function isAvailable(node: RawTreeNode): boolean {
+  return node.node_status !== "NotAvailable";
+}
+
+function isCastleAgeUniqueUnit(node: RawTreeNode): boolean {
+  return (
+    node.node_type === "UniqueUnit" &&
+    node.building_id === CASTLE_ID &&
+    node.age_id === CASTLE_AGE &&
+    node.link_node_type === "BuildingTech"
+  );
+}
+
+function isImperialAgeUniqueUnit(node: RawTreeNode): boolean {
+  return (
+    node.node_type === "UniqueUnit" &&
+    node.building_id === CASTLE_ID &&
+    node.age_id === IMPERIAL_AGE &&
+    node.link_node_type === "UniqueUnit"
+  );
+}
+
+function isCastleAgeUniqueTech(node: RawTreeNode): boolean {
+  return (
+    node.node_type === "Research" &&
+    node.building_id === CASTLE_ID &&
+    node.age_id === CASTLE_AGE &&
+    node.link_node_type === "BuildingTech" &&
+    node.picture_index === CASTLE_UNIQUE_TECH_PICTURE
+  );
+}
+
+function isImperialAgeUniqueTech(node: RawTreeNode): boolean {
+  return (
+    node.node_type === "Research" &&
+    node.building_id === CASTLE_ID &&
+    node.age_id === IMPERIAL_AGE &&
+    node.link_node_type === "BuildingTech" &&
+    node.picture_index === IMPERIAL_UNIQUE_TECH_PICTURE
+  );
 }
 
 function transformCost(raw: RawCost): Record<string, number> {
@@ -20,21 +143,23 @@ function transformCost(raw: RawCost): Record<string, number> {
 }
 
 function transformAges(gameData: RawGameData): Age[] {
-  // Sort by language ID to get sequential age IDs (1=Dark, 2=Feudal, 3=Castle, 4=Imperial)
-  return Object.entries(gameData.age_names)
-    .sort(([, a], [, b]) => Number(a) - Number(b))
-    .map(([, langId], index) => ({
-      id: index + 1,
-      languageNameId: Number(langId),
-    }));
+  // The "base" era lists the four age name string IDs in age order
+  // (1=Dark, 2=Feudal, 3=Castle, 4=Imperial)
+  return gameData.age_names.base.map((langId, index) => ({
+    id: index + 1,
+    languageNameId: Number(langId),
+  }));
 }
 
-function transformUnits(gameData: RawGameData): Unit[] {
-  return Object.values(gameData.data.units).map((raw) => ({
+function transformUnits(
+  gameData: RawGameData,
+  stringIds: Map<string, StringIds>
+): Unit[] {
+  return Object.values(gameData.data.Unit).map((raw) => ({
     id: raw.ID,
     internalName: raw.internal_name,
-    languageNameId: raw.LanguageNameId,
-    languageHelpId: raw.LanguageHelpId,
+    languageNameId: stringIdsFor(stringIds, "Unit", raw).nameId,
+    languageHelpId: stringIdsFor(stringIds, "Unit", raw).helpId,
     hp: raw.HP,
     lineOfSight: raw.LineOfSight,
     garrisonCapacity: raw.GarrisonCapacity,
@@ -62,24 +187,30 @@ function transformUnits(gameData: RawGameData): Unit[] {
   }));
 }
 
-function transformTechs(gameData: RawGameData): Tech[] {
-  return Object.values(gameData.data.techs).map((raw) => ({
+function transformTechs(
+  gameData: RawGameData,
+  stringIds: Map<string, StringIds>
+): Tech[] {
+  return Object.values(gameData.data.Tech).map((raw) => ({
     id: raw.ID,
     internalName: raw.internal_name,
-    languageNameId: raw.LanguageNameId,
-    languageHelpId: raw.LanguageHelpId,
+    languageNameId: stringIdsFor(stringIds, "Tech", raw).nameId,
+    languageHelpId: stringIdsFor(stringIds, "Tech", raw).helpId,
     cost: transformCost(raw.Cost),
     researchTime: raw.ResearchTime,
     repeatable: raw.Repeatable,
   }));
 }
 
-function transformBuildings(gameData: RawGameData): Building[] {
-  return Object.values(gameData.data.buildings).map((raw) => ({
+function transformBuildings(
+  gameData: RawGameData,
+  stringIds: Map<string, StringIds>
+): Building[] {
+  return Object.values(gameData.data.Building).map((raw) => ({
     id: raw.ID,
     internalName: raw.internal_name,
-    languageNameId: raw.LanguageNameId,
-    languageHelpId: raw.LanguageHelpId,
+    languageNameId: stringIdsFor(stringIds, "Building", raw).nameId,
+    languageHelpId: stringIdsFor(stringIds, "Building", raw).helpId,
     hp: raw.HP,
     lineOfSight: raw.LineOfSight,
     garrisonCapacity: raw.GarrisonCapacity,
@@ -97,22 +228,101 @@ function transformBuildings(gameData: RawGameData): Building[] {
   }));
 }
 
-function transformCivs(gameData: RawGameData): Civ[] {
-  return Object.entries(gameData.techtrees).map(([name, tt]) => ({
-    name,
-    languageNameId: Number(gameData.civ_names[name]),
-    languageHelpTextId: Number(gameData.civ_helptexts[name]),
-    monkSuffix: tt.monkSuffix,
-    unique: {
-      castleAgeUniqueUnit: tt.unique.castleAgeUniqueUnit,
-      imperialAgeUniqueUnit: tt.unique.imperialAgeUniqueUnit,
-      castleAgeUniqueTech: tt.unique.castleAgeUniqueTech,
-      imperialAgeUniqueTech: tt.unique.imperialAgeUniqueTech,
-    },
-    units: tt.units.map((e) => ({ id: e.id, ageId: e.age })),
-    techs: tt.techs.map((e) => ({ id: e.id, ageId: e.age })),
-    buildings: tt.buildings.map((e) => ({ id: e.id, ageId: e.age })),
-  }));
+function transformCivs(gameData: RawGameData, trees: RawTreeMap): Civ[] {
+  return Object.entries(gameData.civs).map(([name, info]) => {
+    const tree = trees[name];
+
+    // A unit can appear at more than one building (e.g. the Petard at both
+    // Castle and Krepost); keep one entry per ID with its earliest age.
+    const buildings = new Map<number, number>();
+    const units = new Map<number, number>();
+    const techs = new Map<number, number>();
+    const addEntry = (map: Map<number, number>, id: number, age: number) => {
+      const existing = map.get(id);
+      if (existing === undefined || age < existing) {
+        map.set(id, age);
+      }
+    };
+
+    const unique: Partial<Civ["unique"]> = {};
+    let monkSuffix = "";
+
+    for (const node of tree.buildings) {
+      if (isAvailable(node)) {
+        addEntry(buildings, node.node_id, node.age_id);
+      }
+    }
+
+    for (const node of tree.units_techs) {
+      if (node.name === "Monk") {
+        monkSuffix = `_${node.picture_index}`;
+      }
+      if (!isAvailable(node)) {
+        continue;
+      }
+      if (node.use_type === "Building") {
+        addEntry(buildings, node.node_id, node.age_id);
+      } else if (node.use_type === "Unit") {
+        if (isCastleAgeUniqueUnit(node)) {
+          unique.castleAgeUniqueUnit = node.node_id;
+        } else if (isImperialAgeUniqueUnit(node)) {
+          unique.imperialAgeUniqueUnit = node.node_id;
+        } else if (!DUPLICATE_UNIT_NODES.has(node.node_id)) {
+          addEntry(units, node.node_id, node.age_id);
+        }
+      } else if (node.use_type === "Tech") {
+        if (isCastleAgeUniqueTech(node)) {
+          unique.castleAgeUniqueTech = node.node_id;
+        } else if (isImperialAgeUniqueTech(node)) {
+          unique.imperialAgeUniqueTech = node.node_id;
+        } else {
+          addEntry(techs, node.node_id, node.age_id);
+        }
+      }
+    }
+
+    if (XOLOTL_CIVS.has(name)) {
+      addEntry(units, XOLOTL_WARRIOR_ID, XOLOTL_WARRIOR_AGE);
+    }
+
+    const {
+      castleAgeUniqueUnit,
+      imperialAgeUniqueUnit,
+      castleAgeUniqueTech,
+      imperialAgeUniqueTech,
+    } = unique;
+    if (
+      castleAgeUniqueUnit === undefined ||
+      imperialAgeUniqueUnit === undefined ||
+      castleAgeUniqueTech === undefined ||
+      imperialAgeUniqueTech === undefined
+    ) {
+      throw new Error(
+        `Could not identify unique units/techs for ${name}: ${JSON.stringify(unique)}`
+      );
+    }
+
+    const toEntries = (map: Map<number, number>) =>
+      [...map.entries()]
+        .map(([id, ageId]) => ({ id, ageId }))
+        .sort((a, b) => a.id - b.id);
+
+    return {
+      name,
+      languageNameId: info.name_string_id,
+      languageHelpTextId: info.help_string_id,
+      monkSuffix,
+      unique: {
+        castleAgeUniqueUnit,
+        imperialAgeUniqueUnit,
+        castleAgeUniqueTech,
+        imperialAgeUniqueTech,
+      },
+      units: toEntries(units),
+      techs: toEntries(techs),
+      buildings: toEntries(buildings),
+    };
+  });
 }
 
 function buildTranslations(
@@ -161,13 +371,15 @@ function buildTranslations(
 
 export function transform(
   gameData: RawGameData,
-  locales: LocaleMap
+  locales: LocaleMap,
+  trees: RawTreeMap
 ): TransformedData {
   const ages = transformAges(gameData);
-  const units = transformUnits(gameData);
-  const techs = transformTechs(gameData);
-  const buildings = transformBuildings(gameData);
-  const civs = transformCivs(gameData);
+  const stringIds = buildStringIdIndex(trees);
+  const units = transformUnits(gameData, stringIds);
+  const techs = transformTechs(gameData, stringIds);
+  const buildings = transformBuildings(gameData, stringIds);
+  const civs = transformCivs(gameData, trees);
   const translations = buildTranslations(
     locales,
     ages,

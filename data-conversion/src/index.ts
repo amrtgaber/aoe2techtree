@@ -7,16 +7,16 @@ function main(): void {
   console.log("=== AoE2 Tech Tree ETL Pipeline ===\n");
 
   console.log("[1/4] Extracting...");
-  const { gameData, locales } = extract();
+  const { gameData, locales, trees } = extract();
 
   console.log("\n[2/4] Transforming...");
-  const transformed = transform(gameData, locales);
+  const transformed = transform(gameData, locales, trees);
 
   console.log("\n[3/4] Validating...");
   const validated = validate(transformed);
 
   console.log("\n[4/4] Writing output...");
-  write(validated);
+  write(validated, trees);
 
   console.log("\nDone.");
 }
