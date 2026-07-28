@@ -3,9 +3,11 @@
   "version": "0.0.0",
   "description": "data conversion fork for aoe2-data-api project",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "etl": "tsx ./data-conversion/src/index.ts",
-    "start": "npm run etl"
+    "start": "npm run etl",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -21,6 +23,7 @@
     "zod": "^3.23"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "tsx": "^4.19",
     "typescript": "^5.7"
   }
