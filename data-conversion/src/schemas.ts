@@ -120,6 +120,7 @@ export const unitUpgradeSchema = z.object({
 export const metaSchema = z.object({
   generatedAt: z.string(),
   gamePatch: z.number().nullable(),
+  gamePatchDate: z.string().nullable(),
   sourceCommit: z.string(),
   counts: z.object({
     ages: z.number(),
