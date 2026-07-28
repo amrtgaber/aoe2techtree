@@ -8,6 +8,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..", "..");
 const OUTPUT_DIR = join(__dirname, "..", "output");
 const IMG_DIR = join(ROOT, "img");
+// ID-named images for entities that have no tech tree node (and therefore no
+// picture_index), preserved from before upstream switched to
+// picture_index-named images.
+const SUPPLEMENTAL_IMG_DIR = join(__dirname, "..", "img");
 
 function writeJson(filename: string, data: unknown): void {
   const filepath = join(OUTPUT_DIR, filename);
@@ -53,19 +57,48 @@ function copyImages(
   mkdirSync(destDir, { recursive: true });
 
   let copied = 0;
+  const missing: number[] = [];
   for (const id of ids) {
     const pictureIndex = pictures.get(`${useType}:${id}`);
-    if (pictureIndex === undefined) {
-      continue;
-    }
-    const src = join(IMG_DIR, useType, `${pictureIndex}.png`);
-    if (existsSync(src)) {
+    const candidates = [
+      ...(pictureIndex !== undefined
+        ? [join(IMG_DIR, useType, `${pictureIndex}.png`)]
+        : []),
+      join(SUPPLEMENTAL_IMG_DIR, useType, `${id}.png`),
+    ];
+    const src = candidates.find(existsSync);
+    if (src !== undefined) {
       copyFileSync(src, join(destDir, `${id}.png`));
       copied++;
+    } else {
+      missing.push(id);
     }
   }
 
-  console.log(`  ${category}: ${copied}/${ids.length} images copied`);
+  const missingNote =
+    missing.length > 0 ? ` (missing: ${missing.join(", ")})` : "";
+  console.log(`  ${category}: ${copied}/${ids.length} images copied${missingNote}`);
+}
+
+function copyCivImages(civNames: string[]): void {
+  const destDir = join(OUTPUT_DIR, "images", "civs");
+  mkdirSync(destDir, { recursive: true });
+
+  let copied = 0;
+  const missing: string[] = [];
+  for (const name of civNames) {
+    const src = join(IMG_DIR, "Civs", `${name.toLowerCase()}.png`);
+    if (existsSync(src)) {
+      copyFileSync(src, join(destDir, `${name}.png`));
+      copied++;
+    } else {
+      missing.push(name);
+    }
+  }
+
+  const missingNote =
+    missing.length > 0 ? ` (missing: ${missing.join(", ")})` : "";
+  console.log(`  civs: ${copied}/${civNames.length} images copied${missingNote}`);
 }
 
 export function write(data: TransformedData, trees: RawTreeMap): void {
@@ -98,6 +131,7 @@ export function write(data: TransformedData, trees: RawTreeMap): void {
     data.buildings.map((b) => b.id),
     pictures
   );
+  copyCivImages(data.civs.map((c) => c.name));
 
   console.log(`Output written to ${OUTPUT_DIR}`);
 }
